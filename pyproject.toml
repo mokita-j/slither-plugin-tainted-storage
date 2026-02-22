@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slither-tainted-storage"
+version = "0.1.0"
+description = "Detects storage slots tainted by gas-dependent values, CREATE2 addresses, or sender balances."
+license = "AGPL-3.0-only"
+requires-python = ">=3.9"
+dependencies = ["slither-analyzer>=0.6.0"]
+
+[project.entry-points."slither_analyzer.plugin"]
+slither_tainted_storage = "slither_tainted_storage:make_plugin"
