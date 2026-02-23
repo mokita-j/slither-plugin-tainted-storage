@@ -190,6 +190,7 @@ slither-plugin-tainted-storage/
       __init__.py
       tainted_storage.py                          # Detector implementation
   tests/
+    helpers.py                                    # Shared test utilities (caching, helpers)
     test_tainted_storage.py                       # 46 core tests
     test_complex_contracts.py                     # 34 complex/realistic tests
     test_real_contracts.py                        # 27 real-world contract tests

@@ -149,8 +149,7 @@ class _FunctionTaintCtx:
 
 def _analyze_function(
     func: Function,
-    contract: Contract,
-    call_taint_cache: dict[str, set[int]],
+    call_taint_cache: dict[str, bool],
     callee_state_cache: dict[str, set[StateVariable]],
 ) -> list[tuple[StateVariable, Node, str]]:
     """Run taint analysis on *func* and return tainted state writes.
@@ -177,7 +176,7 @@ def _analyze_function(
 def _process_node_data_flow(
     node: Node,
     ctx: _FunctionTaintCtx,
-    call_taint_cache: dict[str, set[int]],
+    call_taint_cache: dict[str, bool],
     callee_state_cache: dict[str, set[StateVariable]],
 ) -> None:
     """Propagate data-flow taint within a single CFG node."""
@@ -246,6 +245,9 @@ def _process_node_data_flow(
             if ctx.is_tainted(ir.variable):
                 if ir.lvalue is not None:
                     ctx.mark(ir.lvalue)
+            if ctx.is_msg_sender(ir.variable):
+                if ir.lvalue is not None:
+                    ctx.mark_msg_sender_alias(ir.lvalue)
             continue
 
         if isinstance(ir, Index):
@@ -286,7 +288,7 @@ def _handle_internal_call(
     ir: InternalCall,
     node: Node,
     ctx: _FunctionTaintCtx,
-    call_taint_cache: dict[str, set[int]],
+    call_taint_cache: dict[str, bool],
     callee_state_cache: dict[str, set[StateVariable]],
 ) -> None:
     """Propagate taint through internal function calls.
@@ -306,13 +308,13 @@ def _handle_internal_call(
         if not isinstance(a, Constant)
     )
 
-    callee_key = callee.canonical_name if callee else ""
+    callee_key = callee.canonical_name
     if callee_key not in call_taint_cache:
         call_taint_cache[callee_key] = (
             _callee_introduces_taint(callee)
         )
 
-    callee_has_taint = bool(call_taint_cache[callee_key])
+    callee_has_taint = call_taint_cache[callee_key]
 
     if (any_arg_tainted or callee_has_taint) and ir.lvalue:
         ctx.mark(ir.lvalue)
@@ -362,37 +364,35 @@ def _propagate_caller_taint_through_callee(
                     ctx.mark(target)
 
 
-def _callee_introduces_taint(func: Function) -> set[int]:
-    """Check if a function body contains taint sources.
-
-    Returns {-1} if the function itself introduces taint.
-    """
-    result: set[int] = set()
+def _callee_introduces_taint(func: Function) -> bool:
+    """Return True if the function body contains taint sources."""
     for node in func.nodes:
         for ir in node.irs:
             if isinstance(ir, SolidityCall):
                 if ir.function == _GASLEFT:
-                    result.add(-1)
+                    return True
                 if ir.function == _BALANCE:
                     args = ir.arguments
                     if args and isinstance(
                         args[0], SolidityVariableComposed
                     ):
                         if args[0] == _MSG_SENDER:
-                            result.add(-1)
+                            return True
             if isinstance(ir, NewContract):
                 if ir.call_salt is not None:
-                    result.add(-1)
-            # Gas-related composed variables
+                    return True
             for r in ir.read:
-                if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
-                    result.add(-1)
-    return result
+                if (
+                    isinstance(r, SolidityVariableComposed)
+                    and r in _GAS_COMPOSED_SOURCES
+                ):
+                    return True
+    return False
 
 
 def _callee_tainted_state_vars(
     func: Function,
-    call_taint_cache: dict[str, set[int]],
+    call_taint_cache: dict[str, bool],
     callee_state_cache: dict[str, set[StateVariable]],
 ) -> set[StateVariable]:
     """Analyze callee to find state variables it taints.
@@ -413,12 +413,11 @@ def _callee_tainted_state_vars(
     callee_state_cache[key] = set()
 
     # Run a mini taint analysis on the callee
-    contract = func.contract_declarer
-    if contract is None:
+    if func.contract_declarer is None:
         return set()
 
     writes = _analyze_function(
-        func, contract, call_taint_cache, callee_state_cache
+        func, call_taint_cache, callee_state_cache
     )
     result = {sv for sv, _node, _reason in writes}
     callee_state_cache[key] = result
@@ -445,11 +444,18 @@ def _maybe_record_state_write(
 
 
 def _infer_reason(ctx: _FunctionTaintCtx) -> str:
-    """Infer which taint source caused the write."""
-    reasons: set[str] = set()
-    _collect_reasons(ctx.function, reasons, set())
-    ordered = sorted(reasons)
-    return ", ".join(ordered) if ordered else "tainted source"
+    """Infer which taint source caused the write.
+
+    Result is cached per ctx since the function body is constant.
+    """
+    if not hasattr(ctx, "_cached_reason"):
+        reasons: set[str] = set()
+        _collect_reasons(ctx.function, reasons, set())
+        ordered = sorted(reasons)
+        ctx._cached_reason = (
+            ", ".join(ordered) if ordered else "tainted source"
+        )
+    return ctx._cached_reason
 
 
 def _collect_reasons(
@@ -468,8 +474,12 @@ def _collect_reasons(
     visited.add(key)
 
     has_msg_sender_ref = False
+    has_non_sender_balance = False
+    callees: list[Function] = []
+
     for n in func.nodes:
         for ir in n.irs:
+            # Track msg.sender references
             if isinstance(ir, Assignment):
                 if (
                     isinstance(ir.rvalue, SolidityVariableComposed)
@@ -477,39 +487,46 @@ def _collect_reasons(
                 ):
                     has_msg_sender_ref = True
 
-    for n in func.nodes:
-        for ir in n.irs:
             # Gas-related composed variables
             for r in ir.read:
-                if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
+                if (
+                    isinstance(r, SolidityVariableComposed)
+                    and r in _GAS_COMPOSED_SOURCES
+                ):
                     reasons.add(_GAS_COMPOSED_SOURCES[r])
+
             if isinstance(ir, SolidityCall):
                 if ir.function == _GASLEFT:
                     reasons.add("gasleft()")
                 if ir.function == _BALANCE:
                     args = ir.arguments
-                    is_sender = False
-                    if args:
-                        a = args[0]
-                        if isinstance(
-                            a, SolidityVariableComposed
-                        ) and a == _MSG_SENDER:
-                            is_sender = True
-                        elif has_msg_sender_ref:
-                            is_sender = True
-                    if is_sender:
+                    if args and isinstance(
+                        args[0], SolidityVariableComposed
+                    ) and args[0] == _MSG_SENDER:
                         reasons.add("msg.sender.balance")
-                    else:
-                        reasons.add("address.balance")
+                    elif args:
+                        has_non_sender_balance = True
+
             if (
                 isinstance(ir, NewContract)
                 and ir.call_salt is not None
             ):
                 reasons.add("CREATE2")
+
             if isinstance(ir, InternalCall) and ir.function:
                 callee = ir.function
                 if hasattr(callee, "nodes"):
-                    _collect_reasons(callee, reasons, visited)
+                    callees.append(callee)
+
+    # balance(x) where x is a local alias of msg.sender
+    if has_non_sender_balance:
+        if has_msg_sender_ref:
+            reasons.add("msg.sender.balance")
+        else:
+            reasons.add("address.balance")
+
+    for callee in callees:
+        _collect_reasons(callee, reasons, visited)
 
 
 # ── overwrite elimination ────────────────────────────────────────
@@ -608,7 +625,7 @@ def _propagate_control_flow_taint(
             if isinstance(ir, Condition):
                 if ctx.is_tainted(ir.value):
                     cond_tainted = True
-            if isinstance(ir, (Binary, OperationWithLValue)):
+            if isinstance(ir, OperationWithLValue):
                 reads = [
                     v
                     for v in ir.read
@@ -719,7 +736,7 @@ can be manipulated by callers to influence contract state."""
 
     def _detect(self) -> list:
         results = []
-        call_taint_cache: dict[str, set[int]] = {}
+        call_taint_cache: dict[str, bool] = {}
         callee_state_cache: dict[str, set[StateVariable]] = {}
         seen: set[tuple[str, str]] = set()
 
@@ -736,7 +753,7 @@ can be manipulated by callers to influence contract state."""
                 if not func.is_implemented:
                     continue
                 writes = _analyze_function(
-                    func, contract, call_taint_cache,
+                    func, call_taint_cache,
                     callee_state_cache,
                 )
                 for state_var, node, reason in writes:

@@ -2,46 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from slither import Slither
-from slither_tainted_storage.detectors.tainted_storage import (
-    TaintedStorage,
+from helpers import (
+    run_detector as _run_detector,
+    tainted_vars as _tainted_vars,
+    tainted_storage_fields as _tainted_storage_fields,
 )
-
-CONTRACTS_DIR = Path(__file__).parent / "contracts"
-
-
-def _run_detector(filename: str) -> list[dict]:
-    sol_path = str(CONTRACTS_DIR / filename)
-    sl = Slither(sol_path)
-    sl.register_detector(TaintedStorage)
-    results = sl.run_detectors()
-    return [item for sublist in results for item in sublist]
-
-
-def _tainted_vars(results: list[dict]) -> set[str]:
-    names: set[str] = set()
-    for r in results:
-        elems = r.get("elements", [])
-        if elems:
-            name = elems[0].get("name", "")
-            if name:
-                names.add(name)
-    return names
-
-
-def _tainted_storage_fields(
-    results: list[dict],
-) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for r in results:
-        ts = r.get("additional_fields", {}).get(
-            "tainted_storage", {}
-        )
-        if ts:
-            out[ts["variable"]] = ts
-    return out
 
 
 # ── RealisticVault ──────────────────────────────────────────────

@@ -7,58 +7,16 @@ correctly identifies real taint patterns.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from slither import Slither
-from slither_tainted_storage.detectors.tainted_storage import (
-    TaintedStorage,
+
+from helpers import (
+    find_solc,
+    run_detector as _run_detector,
+    tainted_vars as _tainted_vars,
+    tainted_storage_fields as _tainted_storage_fields,
 )
 
-CONTRACTS_DIR = Path(__file__).parent / "contracts"
-
-# solc 0.7.6 binary for Uniswap V3 contracts
-_SOLC_07 = str(
-    Path(__file__).resolve().parents[1]
-    / ".venv/.solc-select/artifacts/solc-0.7.6/solc-0.7.6"
-)
-
-
-def _run_detector(
-    filename: str, *, solc: str | None = None
-) -> list[dict]:
-    sol_path = str(CONTRACTS_DIR / filename)
-    kwargs: dict = {}
-    if solc is not None:
-        kwargs["solc"] = solc
-    sl = Slither(sol_path, **kwargs)
-    sl.register_detector(TaintedStorage)
-    results = sl.run_detectors()
-    return [item for sublist in results for item in sublist]
-
-
-def _tainted_vars(results: list[dict]) -> set[str]:
-    names: set[str] = set()
-    for r in results:
-        elems = r.get("elements", [])
-        if elems:
-            name = elems[0].get("name", "")
-            if name:
-                names.add(name)
-    return names
-
-
-def _tainted_storage_fields(
-    results: list[dict],
-) -> dict[str, dict]:
-    out: dict[str, dict] = {}
-    for r in results:
-        ts = r.get("additional_fields", {}).get(
-            "tainted_storage", {}
-        )
-        if ts:
-            out[ts["variable"]] = ts
-    return out
+_SOLC_07 = find_solc("0.7.6")
 
 
 # ── Tether (USDT) ─────────────────────────────────────────────
@@ -128,9 +86,8 @@ class TestWETH:
 # ── Uniswap V3 Factory ────────────────────────────────────────
 
 
-_solc_07_available = Path(_SOLC_07).exists()
 _skip_no_solc07 = pytest.mark.skipif(
-    not _solc_07_available,
+    _SOLC_07 is None,
     reason="solc 0.7.6 not installed",
 )
 

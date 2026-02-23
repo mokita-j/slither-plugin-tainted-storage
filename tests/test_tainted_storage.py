@@ -2,50 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from slither import Slither
-from slither_tainted_storage.detectors.tainted_storage import (
-    TaintedStorage,
+from helpers import (
+    run_detector as _run_detector,
+    tainted_vars as _tainted_vars,
+    tainted_storage_fields as _tainted_storage_fields,
 )
-
-CONTRACTS_DIR = Path(__file__).parent / "contracts"
-
-
-def _run_detector(filename: str) -> list[dict]:
-    """Run tainted-storage on a contract and return JSON results."""
-    sol_path = str(CONTRACTS_DIR / filename)
-    sl = Slither(sol_path)
-    sl.register_detector(TaintedStorage)
-    results = sl.run_detectors()
-    flat = [item for sublist in results for item in sublist]
-    return flat
-
-
-def _tainted_vars(results: list[dict]) -> set[str]:
-    """Extract the set of tainted variable names from results."""
-    names: set[str] = set()
-    for r in results:
-        elems = r.get("elements", [])
-        if elems:
-            name = elems[0].get("name", "")
-            if name:
-                names.add(name)
-    return names
-
-
-def _tainted_storage_fields(
-    results: list[dict],
-) -> dict[str, dict]:
-    """Map variable canonical name to its tainted_storage JSON."""
-    out: dict[str, dict] = {}
-    for r in results:
-        ts = r.get("additional_fields", {}).get(
-            "tainted_storage", {}
-        )
-        if ts:
-            out[ts["variable"]] = ts
-    return out
 
 
 # ── GasleftTaint ────────────────────────────────────────────────
