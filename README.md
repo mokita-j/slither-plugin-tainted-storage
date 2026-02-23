@@ -126,7 +126,7 @@ Each contract has annotated `// TAINTED` and `// CLEAN` comments showing expecte
 # Install test dependencies
 pip install pytest
 
-# Run all 80 tests
+# Run all 107 tests
 pytest tests/ -v
 ```
 
@@ -147,6 +147,15 @@ pytest tests/ -v
 | `ComplexFlows.sol` | Struct member taint, array push, multi-return, overwrite elimination, state length |
 | `TaintLaundering.sol` | Balance alias, bool from gas, ternary, write after branch (clean), clean mapping read |
 | `IntraCallTaint.sol` | Intra-transaction taint: `_taint()` then read, derived values, multi-hop chain, conditional after call |
+
+#### Real-world contracts (false-positive validation)
+
+| Contract | Scenarios |
+|---|---|
+| `tokens/tether.sol` | Tether (USDT) -- zero findings expected: all writes use explicit parameters, no taint sources |
+| `tokens/weth.sol` | Wrapped Ether (WETH9) -- zero findings: `address(this).balance` in view function only, no tainted state writes |
+| `uniswap-v3/UniswapV3Factory.sol` | Uniswap V3 factory -- `getPool` tainted by CREATE2 deployment; `owner`, `feeAmountTickSpacing` clean |
+| `uniswap-v3/UniswapV3Pool.sol` | Uniswap V3 pool (869 lines, 18 functions) -- zero findings: `block.timestamp` not a tracked taint source |
 
 ### Run against the included test contracts directly
 
@@ -183,6 +192,7 @@ slither-plugin-tainted-storage/
   tests/
     test_tainted_storage.py                       # 46 core tests
     test_complex_contracts.py                     # 34 complex/realistic tests
+    test_real_contracts.py                        # 27 real-world contract tests
     contracts/
       GasleftTaint.sol                            # gasleft() scenarios
       BalanceTaint.sol                            # msg.sender.balance scenarios
@@ -197,6 +207,16 @@ slither-plugin-tainted-storage/
       ComplexFlows.sol                            # Structs, arrays, multi-return
       TaintLaundering.sol                         # Alias tracking, laundering patterns
       IntraCallTaint.sol                          # Intra-transaction call taint
+      tokens/
+        tether.sol                                # Tether (USDT) production contract
+        weth.sol                                  # WETH9 production contract
+      uniswap-v3/                                 # Uniswap V3 core (solc 0.7.6)
+        UniswapV3Factory.sol                      # Factory with CREATE2 deployment
+        UniswapV3Pool.sol                         # Pool with oracle, swaps, positions
+        UniswapV3PoolDeployer.sol                 # CREATE2 deployer base
+        NoDelegateCall.sol                        # Delegate call guard
+        interfaces/                               # IUniswapV3*.sol interfaces
+        libraries/                                # Oracle, Tick, Position, math libs
 ```
 
 ## Limitations
