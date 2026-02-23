@@ -26,9 +26,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
-      - run: pip install solc-select
-      - run: |
-          solc-select install 0.8.24
+      - name: Install solc versions
+        run: |
+          solc-select install 0.8.28
           solc-select install 0.7.6
-          solc-select use 0.8.24
+          solc-select use 0.8.28
+          solc --version
       - run: pytest tests/ -v
