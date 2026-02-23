@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from slither.core.cfg.node import NodeType
 from slither.core.declarations.solidity_variables import (
     SolidityFunction,
+    SolidityVariable,
     SolidityVariableComposed,
 )
 from slither.core.variables.state_variable import StateVariable
@@ -47,14 +48,12 @@ from slither.slithir.operations.lvalue import OperationWithLValue
 from slither.slithir.variables import (
     Constant,
     ReferenceVariable,
-    TemporaryVariable,
 )
 
 if TYPE_CHECKING:
     from slither.core.cfg.node import Node
     from slither.core.declarations import Contract, Function
     from slither.detectors.abstract_detector import DETECTOR_INFO
-    from slither.slithir.variables.variable import SlithIRVariable
 
 
 # ── helpers ──────────────────────────────────────────────────────
@@ -91,6 +90,8 @@ def _var_key(var: object) -> int | str:
     """Stable identity for a variable across IR ops."""
     if isinstance(var, StateVariable):
         return f"state:{var.canonical_name}"
+    if isinstance(var, (SolidityVariableComposed, SolidityVariable)):
+        return f"solidity:{var.name}"
     return id(var)
 
 
@@ -119,6 +120,7 @@ class _FunctionTaintCtx:
         self.tainted_state_writes: list[
             tuple[StateVariable, Node, str]
         ] = []
+        self._seen_writes: set[tuple[str, int]] = set()
 
     def is_tainted(self, var: object) -> bool:
         return _var_key(var) in self.tainted
@@ -149,6 +151,7 @@ def _analyze_function(
     func: Function,
     contract: Contract,
     call_taint_cache: dict[str, set[int]],
+    callee_state_cache: dict[str, set[StateVariable]],
 ) -> list[tuple[StateVariable, Node, str]]:
     """Run taint analysis on *func* and return tainted state writes.
 
@@ -158,7 +161,9 @@ def _analyze_function(
 
     # Phase 1: forward data-flow taint on each node in order
     for node in func.nodes:
-        _process_node_data_flow(node, ctx, call_taint_cache)
+        _process_node_data_flow(
+            node, ctx, call_taint_cache, callee_state_cache
+        )
 
     # Phase 2: control-flow taint (branches with tainted conditions)
     _propagate_control_flow_taint(func, ctx)
@@ -173,6 +178,7 @@ def _process_node_data_flow(
     node: Node,
     ctx: _FunctionTaintCtx,
     call_taint_cache: dict[str, set[int]],
+    callee_state_cache: dict[str, set[StateVariable]],
 ) -> None:
     """Propagate data-flow taint within a single CFG node."""
     for ir in node.irs:
@@ -258,7 +264,8 @@ def _process_node_data_flow(
 
         if isinstance(ir, InternalCall):
             _handle_internal_call(
-                ir, node, ctx, call_taint_cache
+                ir, node, ctx, call_taint_cache,
+                callee_state_cache,
             )
             continue
 
@@ -280,6 +287,7 @@ def _handle_internal_call(
     node: Node,
     ctx: _FunctionTaintCtx,
     call_taint_cache: dict[str, set[int]],
+    callee_state_cache: dict[str, set[StateVariable]],
 ) -> None:
     """Propagate taint through internal function calls.
 
@@ -311,7 +319,7 @@ def _handle_internal_call(
 
     # Propagate side effects: state variables tainted by callee
     tainted_state = _callee_tainted_state_vars(
-        callee, call_taint_cache
+        callee, call_taint_cache, callee_state_cache
     )
     for sv in tainted_state:
         ctx.mark(sv)
@@ -335,33 +343,23 @@ def _propagate_caller_taint_through_callee(
     local_taint: set[int | str] = set()
     for node in callee.nodes:
         for ir in node.irs:
-            # Seed local taint from reads of caller-tainted vars
+            if not (
+                isinstance(ir, OperationWithLValue)
+                and ir.lvalue is not None
+            ):
+                continue
             reads = [
                 v for v in ir.read
                 if not isinstance(v, Constant)
             ]
-            for r in reads:
-                if ctx.is_tainted(r) or _var_key(r) in local_taint:
-                    if (
-                        isinstance(ir, OperationWithLValue)
-                        and ir.lvalue is not None
-                    ):
-                        local_taint.add(_var_key(ir.lvalue))
-
-            # Propagate within callee
-            if isinstance(ir, OperationWithLValue) and ir.lvalue:
-                for r in reads:
-                    if _var_key(r) in local_taint:
-                        local_taint.add(_var_key(ir.lvalue))
-                        break
-
-            # Record state writes
-            if isinstance(ir, OperationWithLValue) and ir.lvalue:
+            if any(
+                ctx.is_tainted(r) or _var_key(r) in local_taint
+                for r in reads
+            ):
+                local_taint.add(_var_key(ir.lvalue))
                 target = _resolve_ref(ir.lvalue)
                 if isinstance(target, StateVariable):
-                    lkey = _var_key(ir.lvalue)
-                    if lkey in local_taint:
-                        ctx.mark(target)
+                    ctx.mark(target)
 
 
 def _callee_introduces_taint(func: Function) -> set[int]:
@@ -392,13 +390,10 @@ def _callee_introduces_taint(func: Function) -> set[int]:
     return result
 
 
-# Cache: canonical_name -> set of tainted StateVariable objects
-_callee_state_cache: dict[str, set[StateVariable]] = {}
-
-
 def _callee_tainted_state_vars(
     func: Function,
     call_taint_cache: dict[str, set[int]],
+    callee_state_cache: dict[str, set[StateVariable]],
 ) -> set[StateVariable]:
     """Analyze callee to find state variables it taints.
 
@@ -411,22 +406,22 @@ def _callee_tainted_state_vars(
         if hasattr(func, "canonical_name")
         else ""
     )
-    if key in _callee_state_cache:
-        return _callee_state_cache[key]
+    if key in callee_state_cache:
+        return callee_state_cache[key]
 
     # Prevent infinite recursion
-    _callee_state_cache[key] = set()
+    callee_state_cache[key] = set()
 
     # Run a mini taint analysis on the callee
-    from slither.core.declarations import Contract
-
     contract = func.contract_declarer
     if contract is None:
         return set()
 
-    writes = _analyze_function(func, contract, call_taint_cache)
+    writes = _analyze_function(
+        func, contract, call_taint_cache, callee_state_cache
+    )
     result = {sv for sv, _node, _reason in writes}
-    _callee_state_cache[key] = result
+    callee_state_cache[key] = result
     return result
 
 
@@ -440,18 +435,16 @@ def _maybe_record_state_write(
     if isinstance(target, StateVariable) and ctx.is_tainted(
         lvalue
     ):
-        reason = _infer_reason(node, ctx)
-        existing = {
-            (sv.canonical_name, n)
-            for sv, n, _ in ctx.tainted_state_writes
-        }
-        if (target.canonical_name, node) not in existing:
+        key = (target.canonical_name, id(node))
+        if key not in ctx._seen_writes:
+            reason = _infer_reason(ctx)
+            ctx._seen_writes.add(key)
             ctx.tainted_state_writes.append(
                 (target, node, reason)
             )
 
 
-def _infer_reason(node: Node, ctx: _FunctionTaintCtx) -> str:
+def _infer_reason(ctx: _FunctionTaintCtx) -> str:
     """Infer which taint source caused the write."""
     reasons: set[str] = set()
     _collect_reasons(ctx.function, reasons, set())
@@ -592,6 +585,10 @@ def _remove_overwritten_findings(
             for sv, n, r in ctx.tainted_state_writes
             if sv.canonical_name not in to_remove
         ]
+        ctx._seen_writes = {
+            (sv.canonical_name, id(n))
+            for sv, n, _ in ctx.tainted_state_writes
+        }
 
 
 # ── control-flow taint ──────────────────────────────────────────
@@ -627,13 +624,10 @@ def _propagate_control_flow_taint(
         branch_nodes = _collect_branch_body(node)
         for bn in branch_nodes:
             for sv in bn.state_variables_written:
-                reason = _infer_reason(bn, ctx)
-                existing = {
-                    (s.canonical_name, n)
-                    for s, n, _ in ctx.tainted_state_writes
-                }
-                key = (sv.canonical_name, bn)
-                if key not in existing:
+                key = (sv.canonical_name, id(bn))
+                if key not in ctx._seen_writes:
+                    reason = _infer_reason(ctx)
+                    ctx._seen_writes.add(key)
                     ctx.tainted_state_writes.append(
                         (sv, bn, reason)
                     )
@@ -726,7 +720,7 @@ can be manipulated by callers to influence contract state."""
     def _detect(self) -> list:
         results = []
         call_taint_cache: dict[str, set[int]] = {}
-        _callee_state_cache.clear()
+        callee_state_cache: dict[str, set[StateVariable]] = {}
         seen: set[tuple[str, str]] = set()
 
         for contract in self.compilation_unit.contracts_derived:
@@ -742,7 +736,8 @@ can be manipulated by callers to influence contract state."""
                 if not func.is_implemented:
                     continue
                 writes = _analyze_function(
-                    func, contract, call_taint_cache
+                    func, contract, call_taint_cache,
+                    callee_state_cache,
                 )
                 for state_var, node, reason in writes:
                     key = (

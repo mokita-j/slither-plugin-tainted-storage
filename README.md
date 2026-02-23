@@ -9,6 +9,10 @@ State variables whose stored value depends on:
 | Taint source | Why it matters |
 |---|---|
 | `gasleft()` | Remaining gas varies per call and can be manipulated by callers |
+| `tx.gasprice` | Set by the transaction sender; varies across transactions |
+| `block.basefee` | Changes every block based on network congestion |
+| `block.blobbasefee` | Changes every block based on blob gas usage |
+| `block.gaslimit` | Changes across blocks; set by miners/validators |
 | CREATE2 result | Deployed address is predictable but depends on deployer-controlled salt |
 | `msg.sender.balance` | Sender balance is externally mutable between transactions |
 
@@ -122,7 +126,7 @@ Each contract has annotated `// TAINTED` and `// CLEAN` comments showing expecte
 # Install test dependencies
 pip install pytest
 
-# Run all 73 tests
+# Run all 80 tests
 pytest tests/ -v
 ```
 
@@ -135,11 +139,11 @@ pytest tests/ -v
 | `Create2Taint.sol` | `new Contract{salt: ...}()`, type cast, balance of deployed address, regular CREATE (clean) |
 | `CrossFunction.sol` | Taint through internal call, multi-hop call chain, clean internal call |
 | `MixedTaint.sol` | Combined sources (`gasleft ^ balance`), bitwise chain, ABI encode flow, nested branches |
-| `EdgeCases.sol` | False-positive guards: `block.number`, `block.timestamp`, `tx.gasprice`, `msg.value`, literal-address balance. True positives: loop body, ternary, multi-assignment chain |
+| `EdgeCases.sol` | False-positive guards: `block.number`, `block.timestamp`, `msg.value`, literal-address balance. True positives: loop body, ternary, multi-assignment chain, `tx.gasprice` |
 | `PackedStorage.sol` | Storage packing: `uint128`+`uint128` in one slot, three `uint64`+`bool` in one slot, verifies correct slot numbers and byte offsets |
 | `RealisticVault.sol` | DeFi vault with inheritance, structs, modifiers, balance-via-alias |
 | `Create2Factory.sol` | Factory pattern with CREATE2, array push, cross-function state |
-| `GasMeter.sol` | Gas metering, require guard (clean), tx.gasprice |
+| `GasMeter.sol` | Gas metering, require guard (clean), `tx.gasprice` (tainted), `block.basefee`, `block.blobbasefee`, `block.gaslimit` |
 | `ComplexFlows.sol` | Struct member taint, array push, multi-return, overwrite elimination, state length |
 | `TaintLaundering.sol` | Balance alias, bool from gas, ternary, write after branch (clean), clean mapping read |
 | `IntraCallTaint.sol` | Intra-transaction taint: `_taint()` then read, derived values, multi-hop chain, conditional after call |
@@ -177,8 +181,8 @@ slither-plugin-tainted-storage/
       __init__.py
       tainted_storage.py                          # Detector implementation
   tests/
-    test_tainted_storage.py                       # 41 core tests
-    test_complex_contracts.py                     # 32 complex/realistic tests
+    test_tainted_storage.py                       # 46 core tests
+    test_complex_contracts.py                     # 34 complex/realistic tests
     contracts/
       GasleftTaint.sol                            # gasleft() scenarios
       BalanceTaint.sol                            # msg.sender.balance scenarios
