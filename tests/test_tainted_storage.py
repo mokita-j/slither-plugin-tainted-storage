@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from helpers import (
     run_detector as _run_detector,
-    tainted_vars as _tainted_vars,
+)
+from helpers import (
     tainted_storage_fields as _tainted_storage_fields,
 )
-
+from helpers import (
+    tainted_vars as _tainted_vars,
+)
 
 # ── GasleftTaint ────────────────────────────────────────────────
 
@@ -252,9 +255,7 @@ def test_edge_no_false_positives():
         "msgValue",
         "otherBalance",
     ]:
-        assert clean_var not in tainted, (
-            f"{clean_var} should not be tainted"
-        )
+        assert clean_var not in tainted, f"{clean_var} should not be tainted"
 
 
 def test_edge_gas_in_loop():
@@ -304,7 +305,8 @@ def test_edge_gas_sources_reasons():
     fields = _tainted_storage_fields(results)
     assert fields["EdgeCases.txGasPrice"]["taint_source"] == "tx.gasprice"
     assert fields["EdgeCases.baseFee"]["taint_source"] == "block.basefee"
-    assert fields["EdgeCases.blobBaseFee"]["taint_source"] == "block.blobbasefee"
+    blob = fields["EdgeCases.blobBaseFee"]["taint_source"]
+    assert blob == "block.blobbasefee"
     assert fields["EdgeCases.gasLimit"]["taint_source"] == "block.gaslimit"
 
 
@@ -317,9 +319,7 @@ def test_packed_tainted_vars():
     for var in ["b", "d", "f", "h", "m"]:
         assert var in tainted, f"{var} should be tainted"
     for var in ["a", "c", "e", "g"]:
-        assert var not in tainted, (
-            f"{var} should NOT be tainted"
-        )
+        assert var not in tainted, f"{var} should NOT be tainted"
 
 
 def test_packed_slot_offsets():
@@ -370,9 +370,7 @@ def test_packed_json_completeness():
         "function",
     }
     for r in results:
-        ts = r.get("additional_fields", {}).get(
-            "tainted_storage", {}
-        )
+        ts = r.get("additional_fields", {}).get("tainted_storage", {})
         assert ts, "missing tainted_storage in additional_fields"
         assert required_keys <= set(ts.keys()), (
             f"missing keys: {required_keys - set(ts.keys())}"
@@ -383,9 +381,7 @@ def test_packed_taint_sources():
     results = _run_detector("PackedStorage.sol")
     fields = _tainted_storage_fields(results)
     assert fields["PackedStorage.b"]["taint_source"] == "gasleft()"
-    assert "msg.sender.balance" in (
-        fields["PackedStorage.d"]["taint_source"]
-    )
+    assert "msg.sender.balance" in (fields["PackedStorage.d"]["taint_source"])
     assert fields["PackedStorage.f"]["taint_source"] == "gasleft()"
     assert fields["PackedStorage.h"]["taint_source"] == "gasleft()"
     assert fields["PackedStorage.m"]["taint_source"] == "gasleft()"

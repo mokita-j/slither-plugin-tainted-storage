@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from helpers import (
     run_detector as _run_detector,
-    tainted_vars as _tainted_vars,
+)
+from helpers import (
     tainted_storage_fields as _tainted_storage_fields,
 )
-
+from helpers import (
+    tainted_vars as _tainted_vars,
+)
 
 # ── RealisticVault ──────────────────────────────────────────────
 

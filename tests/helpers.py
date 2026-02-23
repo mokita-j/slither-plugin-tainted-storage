@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from slither import Slither
+
 from slither_tainted_storage.detectors.tainted_storage import (
     TaintedStorage,
 )
@@ -16,9 +17,7 @@ CONTRACTS_DIR = Path(__file__).parent / "contracts"
 _cache: dict[tuple[str, str | None], list[dict]] = {}
 
 
-def run_detector(
-    filename: str, *, solc: str | None = None
-) -> list[dict]:
+def run_detector(filename: str, *, solc: str | None = None) -> list[dict]:
     """Run tainted-storage on a contract and return JSON results.
 
     Results are cached by (filename, solc) so the same contract
@@ -33,9 +32,7 @@ def run_detector(
         sl = Slither(sol_path, **kwargs)
         sl.register_detector(TaintedStorage)
         results = sl.run_detectors()
-        _cache[key] = [
-            item for sublist in results for item in sublist
-        ]
+        _cache[key] = [item for sublist in results for item in sublist]
     return _cache[key]
 
 
@@ -57,9 +54,7 @@ def tainted_storage_fields(
     """Map variable canonical name to its tainted_storage JSON."""
     out: dict[str, dict] = {}
     for r in results:
-        ts = r.get("additional_fields", {}).get(
-            "tainted_storage", {}
-        )
+        ts = r.get("additional_fields", {}).get("tainted_storage", {})
         if ts:
             out[ts["variable"]] = ts
     return out

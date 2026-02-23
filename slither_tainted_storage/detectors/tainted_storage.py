@@ -117,9 +117,7 @@ class _FunctionTaintCtx:
         self.tainted: set[int | str] = set()
         # Variables known to alias msg.sender (by id)
         self.msg_sender_aliases: set[int] = set()
-        self.tainted_state_writes: list[
-            tuple[StateVariable, Node, str]
-        ] = []
+        self.tainted_state_writes: list[tuple[StateVariable, Node, str]] = []
         self._seen_writes: set[tuple[str, int]] = set()
 
     def is_tainted(self, var: object) -> bool:
@@ -128,12 +126,8 @@ class _FunctionTaintCtx:
     def mark(self, var: object) -> None:
         self.tainted.add(_var_key(var))
 
-    def mark_if_any_tainted(
-        self, lvalue: object, reads: list[object]
-    ) -> None:
-        if any(
-            self.is_tainted(r) for r in reads if r is not None
-        ):
+    def mark_if_any_tainted(self, lvalue: object, reads: list[object]) -> None:
+        if any(self.is_tainted(r) for r in reads if r is not None):
             if lvalue is not None:
                 self.mark(lvalue)
 
@@ -183,9 +177,10 @@ def _process_node_data_flow(
     for ir in node.irs:
         # ── track msg.sender aliases ──
         if isinstance(ir, Assignment):
-            if isinstance(
-                ir.rvalue, SolidityVariableComposed
-            ) and ir.rvalue == _MSG_SENDER:
+            if (
+                isinstance(ir.rvalue, SolidityVariableComposed)
+                and ir.rvalue == _MSG_SENDER
+            ):
                 ctx.mark_msg_sender_alias(ir.lvalue)
             elif id(ir.rvalue) in ctx.msg_sender_aliases:
                 ctx.mark_msg_sender_alias(ir.lvalue)
@@ -194,7 +189,10 @@ def _process_node_data_flow(
         # Mark the composed variable itself so downstream
         # propagation (assignments, binary ops, etc.) sees it.
         for r in ir.read:
-            if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
+            if (
+                isinstance(r, SolidityVariableComposed)
+                and r in _GAS_COMPOSED_SOURCES
+            ):
                 ctx.mark(r)
 
         # ── taint sources ──
@@ -210,9 +208,7 @@ def _process_node_data_flow(
             # Hash / abi-encode: propagate taint from args
             if ir.function in _HASH_AND_ENCODE:
                 if ir.lvalue is not None:
-                    ctx.mark_if_any_tainted(
-                        ir.lvalue, ir.arguments
-                    )
+                    ctx.mark_if_any_tainted(ir.lvalue, ir.arguments)
                 continue
 
         if isinstance(ir, NewContract):
@@ -234,9 +230,7 @@ def _process_node_data_flow(
             continue
 
         if isinstance(ir, Unary):
-            if hasattr(ir, "rvalue") and ctx.is_tainted(
-                ir.rvalue
-            ):
+            if hasattr(ir, "rvalue") and ctx.is_tainted(ir.rvalue):
                 if ir.lvalue is not None:
                     ctx.mark(ir.lvalue)
             continue
@@ -266,16 +260,17 @@ def _process_node_data_flow(
 
         if isinstance(ir, InternalCall):
             _handle_internal_call(
-                ir, node, ctx, call_taint_cache,
+                ir,
+                node,
+                ctx,
+                call_taint_cache,
                 callee_state_cache,
             )
             continue
 
         # Generic: any operation with lvalue that reads tainted
         if isinstance(ir, OperationWithLValue) and ir.lvalue:
-            reads = [
-                v for v in ir.read if not isinstance(v, Constant)
-            ]
+            reads = [v for v in ir.read if not isinstance(v, Constant)]
             ctx.mark_if_any_tainted(ir.lvalue, reads)
 
     # After processing all IRs, check for state writes
@@ -303,16 +298,12 @@ def _handle_internal_call(
         return
 
     any_arg_tainted = any(
-        ctx.is_tainted(a)
-        for a in ir.arguments
-        if not isinstance(a, Constant)
+        ctx.is_tainted(a) for a in ir.arguments if not isinstance(a, Constant)
     )
 
     callee_key = callee.canonical_name
     if callee_key not in call_taint_cache:
-        call_taint_cache[callee_key] = (
-            _callee_introduces_taint(callee)
-        )
+        call_taint_cache[callee_key] = _callee_introduces_taint(callee)
 
     callee_has_taint = call_taint_cache[callee_key]
 
@@ -346,17 +337,12 @@ def _propagate_caller_taint_through_callee(
     for node in callee.nodes:
         for ir in node.irs:
             if not (
-                isinstance(ir, OperationWithLValue)
-                and ir.lvalue is not None
+                isinstance(ir, OperationWithLValue) and ir.lvalue is not None
             ):
                 continue
-            reads = [
-                v for v in ir.read
-                if not isinstance(v, Constant)
-            ]
+            reads = [v for v in ir.read if not isinstance(v, Constant)]
             if any(
-                ctx.is_tainted(r) or _var_key(r) in local_taint
-                for r in reads
+                ctx.is_tainted(r) or _var_key(r) in local_taint for r in reads
             ):
                 local_taint.add(_var_key(ir.lvalue))
                 target = _resolve_ref(ir.lvalue)
@@ -373,9 +359,7 @@ def _callee_introduces_taint(func: Function) -> bool:
                     return True
                 if ir.function == _BALANCE:
                     args = ir.arguments
-                    if args and isinstance(
-                        args[0], SolidityVariableComposed
-                    ):
+                    if args and isinstance(args[0], SolidityVariableComposed):
                         if args[0] == _MSG_SENDER:
                             return True
             if isinstance(ir, NewContract):
@@ -401,11 +385,7 @@ def _callee_tainted_state_vars(
     determine which state variables are written with tainted
     values. Results are cached.
     """
-    key = (
-        func.canonical_name
-        if hasattr(func, "canonical_name")
-        else ""
-    )
+    key = func.canonical_name if hasattr(func, "canonical_name") else ""
     if key in callee_state_cache:
         return callee_state_cache[key]
 
@@ -416,9 +396,7 @@ def _callee_tainted_state_vars(
     if func.contract_declarer is None:
         return set()
 
-    writes = _analyze_function(
-        func, call_taint_cache, callee_state_cache
-    )
+    writes = _analyze_function(func, call_taint_cache, callee_state_cache)
     result = {sv for sv, _node, _reason in writes}
     callee_state_cache[key] = result
     return result
@@ -431,16 +409,12 @@ def _maybe_record_state_write(
 ) -> None:
     """If lvalue resolves to a state variable and is tainted."""
     target = _resolve_ref(lvalue)
-    if isinstance(target, StateVariable) and ctx.is_tainted(
-        lvalue
-    ):
+    if isinstance(target, StateVariable) and ctx.is_tainted(lvalue):
         key = (target.canonical_name, id(node))
         if key not in ctx._seen_writes:
             reason = _infer_reason(ctx)
             ctx._seen_writes.add(key)
-            ctx.tainted_state_writes.append(
-                (target, node, reason)
-            )
+            ctx.tainted_state_writes.append((target, node, reason))
 
 
 def _infer_reason(ctx: _FunctionTaintCtx) -> str:
@@ -464,11 +438,7 @@ def _collect_reasons(
     visited: set[str],
 ) -> None:
     """Recursively collect taint source names from a function."""
-    key = (
-        func.canonical_name
-        if hasattr(func, "canonical_name")
-        else str(func)
-    )
+    key = func.canonical_name if hasattr(func, "canonical_name") else str(func)
     if key in visited:
         return
     visited.add(key)
@@ -500,17 +470,16 @@ def _collect_reasons(
                     reasons.add("gasleft()")
                 if ir.function == _BALANCE:
                     args = ir.arguments
-                    if args and isinstance(
-                        args[0], SolidityVariableComposed
-                    ) and args[0] == _MSG_SENDER:
+                    if (
+                        args
+                        and isinstance(args[0], SolidityVariableComposed)
+                        and args[0] == _MSG_SENDER
+                    ):
                         reasons.add("msg.sender.balance")
                     elif args:
                         has_non_sender_balance = True
 
-            if (
-                isinstance(ir, NewContract)
-                and ir.call_salt is not None
-            ):
+            if isinstance(ir, NewContract) and ir.call_salt is not None:
                 reasons.add("CREATE2")
 
             if isinstance(ir, InternalCall) and ir.function:
@@ -603,8 +572,7 @@ def _remove_overwritten_findings(
             if sv.canonical_name not in to_remove
         ]
         ctx._seen_writes = {
-            (sv.canonical_name, id(n))
-            for sv, n, _ in ctx.tainted_state_writes
+            (sv.canonical_name, id(n)) for sv, n, _ in ctx.tainted_state_writes
         }
 
 
@@ -626,11 +594,7 @@ def _propagate_control_flow_taint(
                 if ctx.is_tainted(ir.value):
                     cond_tainted = True
             if isinstance(ir, OperationWithLValue):
-                reads = [
-                    v
-                    for v in ir.read
-                    if not isinstance(v, Constant)
-                ]
+                reads = [v for v in ir.read if not isinstance(v, Constant)]
                 if any(ctx.is_tainted(r) for r in reads):
                     if ir.lvalue is not None:
                         ctx.mark(ir.lvalue)
@@ -645,9 +609,7 @@ def _propagate_control_flow_taint(
                 if key not in ctx._seen_writes:
                     reason = _infer_reason(ctx)
                     ctx._seen_writes.add(key)
-                    ctx.tainted_state_writes.append(
-                        (sv, bn, reason)
-                    )
+                    ctx.tainted_state_writes.append((sv, bn, reason))
 
 
 def _collect_branch_body(if_node: Node) -> list[Node]:
@@ -700,12 +662,8 @@ class TaintedStorage(AbstractDetector):
     IMPACT = DetectorClassification.MEDIUM
     CONFIDENCE = DetectorClassification.MEDIUM
 
-    WIKI = (
-        "https://github.com/crytic/slither/wiki/tainted-storage"
-    )
-    WIKI_TITLE = (
-        "Storage tainted by gas-dependent or CREATE2 values"
-    )
+    WIKI = "https://github.com/crytic/slither/wiki/tainted-storage"
+    WIKI_TITLE = "Storage tainted by gas-dependent or CREATE2 values"
     WIKI_DESCRIPTION = (
         "Detects state variables whose stored value depends on "
         "`gasleft()`, `tx.gasprice`, `block.basefee`, "
@@ -753,7 +711,8 @@ can be manipulated by callers to influence contract state."""
                 if not func.is_implemented:
                     continue
                 writes = _analyze_function(
-                    func, call_taint_cache,
+                    func,
+                    call_taint_cache,
                     callee_state_cache,
                 )
                 for state_var, node, reason in writes:
@@ -774,8 +733,7 @@ can be manipulated by callers to influence contract state."""
 
                     info: DETECTOR_INFO = [
                         state_var,
-                        f" (slot: {slot}, offset: {offset})"
-                        f" is tainted by ",
+                        f" (slot: {slot}, offset: {offset}) is tainted by ",
                         reason,
                         " in ",
                         func,
@@ -785,22 +743,16 @@ can be manipulated by callers to influence contract state."""
                     ]
                     extra = {
                         "tainted_storage": {
-                            "variable": (
-                                state_var.canonical_name
-                            ),
+                            "variable": (state_var.canonical_name),
                             "contract": contract.name,
                             "slot": slot,
                             "slot_hex": slot_hex,
                             "offset": offset,
                             "taint_source": reason,
-                            "function": (
-                                func.canonical_name
-                            ),
+                            "function": (func.canonical_name),
                         }
                     }
                     results.append(
-                        self.generate_result(
-                            info, additional_fields=extra
-                        )
+                        self.generate_result(info, additional_fields=extra)
                     )
         return results

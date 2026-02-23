@@ -8,12 +8,17 @@ correctly identifies real taint patterns.
 from __future__ import annotations
 
 import pytest
-
 from helpers import (
     find_solc,
+)
+from helpers import (
     run_detector as _run_detector,
-    tainted_vars as _tainted_vars,
+)
+from helpers import (
     tainted_storage_fields as _tainted_storage_fields,
+)
+from helpers import (
+    tainted_vars as _tainted_vars,
 )
 
 _SOLC_07 = find_solc("0.7.6")
@@ -98,9 +103,7 @@ class TestUniswapV3Factory:
 
     @pytest.fixture(scope="class")
     def results(self):
-        return _run_detector(
-            "uniswap-v3/UniswapV3Factory.sol", solc=_SOLC_07
-        )
+        return _run_detector("uniswap-v3/UniswapV3Factory.sol", solc=_SOLC_07)
 
     def test_getPool_tainted(self, results):
         """getPool mapping stores CREATE2-deployed address."""
@@ -143,8 +146,13 @@ class TestUniswapV3Factory:
         fields = _tainted_storage_fields(results)
         ts = fields["UniswapV3Factory.getPool"]
         for key in (
-            "variable", "contract", "slot", "slot_hex",
-            "offset", "taint_source", "function",
+            "variable",
+            "contract",
+            "slot",
+            "slot_hex",
+            "offset",
+            "taint_source",
+            "function",
         ):
             assert key in ts, f"missing {key}"
         assert ts["contract"] == "UniswapV3Factory"
@@ -162,9 +170,7 @@ class TestUniswapV3Pool:
 
     @pytest.fixture(scope="class")
     def results(self):
-        return _run_detector(
-            "uniswap-v3/UniswapV3Pool.sol", solc=_SOLC_07
-        )
+        return _run_detector("uniswap-v3/UniswapV3Pool.sol", solc=_SOLC_07)
 
     def test_no_findings(self, results):
         """Pool has no tainted storage (block.timestamp not tracked)."""
