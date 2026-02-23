@@ -1,20 +1,23 @@
-"""Detect storage slots tainted by gas-dependent, CREATE2, or
-sender-balance values.
+"""Detect storage slots that will diverge across chains.
 
-Taint sources:
+Finds state variables written from values that differ between
+execution environments (e.g. Ethereum vs Polkadot/revive), making
+cross-chain storage comparisons unreliable.
+
+Drift sources:
   - gasleft()
   - tx.gasprice, block.basefee, block.blobbasefee, block.gaslimit
   - CREATE2 result (NewContract with salt)
   - address.balance where address == msg.sender
 
-Taint propagation:
+Drift propagation:
   - Data flow: assignments, arithmetic, bitwise, hashing,
     ABI encoding, type conversions, function args/returns,
     mapping index keys, tuple unpacking
-  - Control flow: if a tainted value is in a branch condition,
-    all state writes inside that branch body are tainted
+  - Control flow: if a drifting value is in a branch condition,
+    all state writes inside that branch body are flagged
 
-Taint sink: any state variable write.
+Drift sink: any state variable write.
 """
 
 from __future__ import annotations
@@ -653,24 +656,25 @@ def _get_storage_slot(
 # ── detector class ──────────────────────────────────────────────
 
 
-class TaintedStorage(AbstractDetector):
-    ARGUMENT = "tainted-storage"
+class StorageDrift(AbstractDetector):
+    ARGUMENT = "storage-drift"
     HELP = (
-        "State variables tainted by gasleft, gas-related globals, "
-        "CREATE2, or sender balance"
+        "State variables that diverge across chains "
+        "(gas mechanics, CREATE2, sender balance)"
     )
     IMPACT = DetectorClassification.MEDIUM
     CONFIDENCE = DetectorClassification.MEDIUM
 
-    WIKI = "https://github.com/crytic/slither/wiki/tainted-storage"
-    WIKI_TITLE = "Storage tainted by gas-dependent or CREATE2 values"
+    WIKI = "https://github.com/nicblockchain/storage-drift"
+    WIKI_TITLE = "Storage drift: chain-dependent values in storage"
     WIKI_DESCRIPTION = (
         "Detects state variables whose stored value depends on "
-        "`gasleft()`, `tx.gasprice`, `block.basefee`, "
-        "`block.blobbasefee`, `block.gaslimit`, the address "
-        "returned by CREATE2, or `msg.sender.balance`. These "
-        "values are non-deterministic or manipulable and storing "
-        "them can lead to unexpected contract behavior."
+        "chain-specific mechanics (`gasleft()`, `tx.gasprice`, "
+        "`block.basefee`, `block.blobbasefee`, `block.gaslimit`, "
+        "CREATE2, or `msg.sender.balance`). These values differ "
+        "across execution environments (e.g. Ethereum vs "
+        "Polkadot/revive), making cross-chain storage comparison "
+        "unreliable."
     )
     WIKI_EXPLOIT_SCENARIO = """
 ```solidity
@@ -687,9 +691,9 @@ can be manipulated by callers to influence contract state."""
         "Avoid storing values derived from `gasleft()`, "
         "`tx.gasprice`, `block.basefee`, `block.blobbasefee`, "
         "`block.gaslimit`, CREATE2 deployment addresses, or "
-        "`msg.sender.balance` in contract storage. If needed, "
-        "document the non-determinism clearly and add validation "
-        "logic."
+        "`msg.sender.balance` in contract storage. These cause "
+        "storage divergence across chains. If needed, document "
+        "the chain-dependency clearly and add validation logic."
     )
 
     def _detect(self) -> list:
@@ -742,7 +746,7 @@ can be manipulated by callers to influence contract state."""
                         "\n",
                     ]
                     extra = {
-                        "tainted_storage": {
+                        "storage_drift": {
                             "variable": (state_var.canonical_name),
                             "contract": contract.name,
                             "slot": slot,

@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "slither-tainted-storage"
+name = "storage-drift"
 version = "0.1.0"
-description = "Detects storage slots tainted by gas-dependent values, gas-related globals, CREATE2 addresses, or sender balances."
+description = "Slither plugin that detects storage slots that diverge across chains — values dependent on gas mechanics, CREATE2, or sender balance that differ between execution environments (e.g. Ethereum vs Polkadot/revive)."
 license = "AGPL-3.0-only"
 requires-python = ">=3.9"
 dependencies = ["slither-analyzer>=0.6.0"]
@@ -14,7 +14,7 @@ dependencies = ["slither-analyzer>=0.6.0"]
 dev = ["pytest", "ruff", "solc-select"]
 
 [project.entry-points."slither_analyzer.plugin"]
-slither_tainted_storage = "slither_tainted_storage:make_plugin"
+storage_drift = "storage_drift:make_plugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,4 +1,4 @@
-"""Shared test utilities for the tainted-storage detector."""
+"""Shared test utilities for the storage-drift detector."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 from slither import Slither
 
-from slither_tainted_storage.detectors.tainted_storage import (
-    TaintedStorage,
+from storage_drift.detectors.drift_detector import (
+    StorageDrift,
 )
 
 CONTRACTS_DIR = Path(__file__).parent / "contracts"
@@ -18,7 +18,7 @@ _cache: dict[tuple[str, str | None], list[dict]] = {}
 
 
 def run_detector(filename: str, *, solc: str | None = None) -> list[dict]:
-    """Run tainted-storage on a contract and return JSON results.
+    """Run storage-drift on a contract and return JSON results.
 
     Results are cached by (filename, solc) so the same contract
     is compiled at most once per test session.
@@ -30,14 +30,14 @@ def run_detector(filename: str, *, solc: str | None = None) -> list[dict]:
         if solc is not None:
             kwargs["solc"] = solc
         sl = Slither(sol_path, **kwargs)
-        sl.register_detector(TaintedStorage)
+        sl.register_detector(StorageDrift)
         results = sl.run_detectors()
         _cache[key] = [item for sublist in results for item in sublist]
     return _cache[key]
 
 
-def tainted_vars(results: list[dict]) -> set[str]:
-    """Extract the set of tainted variable names from results."""
+def drifting_vars(results: list[dict]) -> set[str]:
+    """Extract the set of drifting variable names from results."""
     names: set[str] = set()
     for r in results:
         elems = r.get("elements", [])
@@ -48,13 +48,13 @@ def tainted_vars(results: list[dict]) -> set[str]:
     return names
 
 
-def tainted_storage_fields(
+def storage_drift_fields(
     results: list[dict],
 ) -> dict[str, dict]:
-    """Map variable canonical name to its tainted_storage JSON."""
+    """Map variable canonical name to its storage_drift JSON."""
     out: dict[str, dict] = {}
     for r in results:
-        ts = r.get("additional_fields", {}).get("tainted_storage", {})
+        ts = r.get("additional_fields", {}).get("storage_drift", {})
         if ts:
             out[ts["variable"]] = ts
     return out
