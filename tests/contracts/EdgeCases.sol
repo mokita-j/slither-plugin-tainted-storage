@@ -5,12 +5,15 @@ pragma solidity ^0.8.0;
 contract EdgeCases {
     uint256 public blockNum;        // CLEAN: block.number is not a source
     uint256 public timestamp;       // CLEAN: block.timestamp is not a source
-    uint256 public txGasPrice;      // CLEAN: tx.gasprice is not a source
+    uint256 public txGasPrice;      // TAINTED: tx.gasprice is a gas source
     uint256 public msgValue;        // CLEAN: msg.value is not a source
     uint256 public otherBalance;    // CLEAN: non-sender balance (literal addr)
     uint256 public gasInLoop;       // TAINTED: gasleft in loop body
     uint256 public ternaryGas;      // TAINTED: ternary with gasleft
     uint256 public multiAssign;     // TAINTED: reassigned from tainted
+    uint256 public baseFee;         // TAINTED: block.basefee is a gas source
+    uint256 public blobBaseFee;     // TAINTED: block.blobbasefee is a gas source
+    uint256 public gasLimit;        // TAINTED: block.gaslimit is a gas source
 
     function storeBlockNum() external {
         blockNum = block.number;
@@ -48,5 +51,17 @@ contract EdgeCases {
         uint256 b = a;
         uint256 c = b;
         multiAssign = c;
+    }
+
+    function storeBaseFee() external {
+        baseFee = block.basefee;
+    }
+
+    function storeBlobBaseFee() external {
+        blobBaseFee = block.blobbasefee;
+    }
+
+    function storeGasLimit() external {
+        gasLimit = block.gaslimit;
     }
 }

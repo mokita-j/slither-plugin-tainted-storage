@@ -140,10 +140,22 @@ def test_gasmeter_tainted():
         assert var in tainted, f"{var} should be tainted"
 
 
+def test_gasmeter_gasprice_tainted():
+    results = _run_detector("GasMeter.sol")
+    tainted = _tainted_vars(results)
+    assert "cachedGasPrice" in tainted
+
+
+def test_gasmeter_gasprice_reason():
+    results = _run_detector("GasMeter.sol")
+    fields = _tainted_storage_fields(results)
+    ts = fields["GasMeter.cachedGasPrice"]
+    assert ts["taint_source"] == "tx.gasprice"
+
+
 def test_gasmeter_clean():
     results = _run_detector("GasMeter.sol")
     tainted = _tainted_vars(results)
-    assert "cachedGasPrice" not in tainted
     assert "executionCount" not in tainted
 
 

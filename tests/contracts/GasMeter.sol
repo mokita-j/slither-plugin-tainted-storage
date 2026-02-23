@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 /// Gas metering patterns found in real protocols.
 contract GasMeter {
     uint256 public gasPerUnit;           // TAINTED: gasleft diff / count
-    uint256 public cachedGasPrice;       // CLEAN: tx.gasprice not a source
+    uint256 public cachedGasPrice;       // TAINTED: tx.gasprice is a gas source
     uint256 public executionCount;       // CLEAN: just a counter
     uint256 public lastExecGas;          // TAINTED: gasleft diff
 
@@ -26,7 +26,7 @@ contract GasMeter {
         executionCount += 1;
     }
 
-    /// Clean: tx.gasprice is NOT one of our taint sources
+    /// Tainted: tx.gasprice is a gas-related taint source
     function cacheGasPrice() external {
         cachedGasPrice = tx.gasprice;
     }

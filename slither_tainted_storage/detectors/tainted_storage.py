@@ -3,6 +3,7 @@ sender-balance values.
 
 Taint sources:
   - gasleft()
+  - tx.gasprice, block.basefee, block.blobbasefee, block.gaslimit
   - CREATE2 result (NewContract with salt)
   - address.balance where address == msg.sender
 
@@ -61,6 +62,14 @@ if TYPE_CHECKING:
 _GASLEFT = SolidityFunction("gasleft()")
 _BALANCE = SolidityFunction("balance(address)")
 _MSG_SENDER = SolidityVariableComposed("msg.sender")
+
+# Gas-related composed variables treated as taint sources
+_GAS_COMPOSED_SOURCES: dict[SolidityVariableComposed, str] = {
+    SolidityVariableComposed("tx.gasprice"): "tx.gasprice",
+    SolidityVariableComposed("block.basefee"): "block.basefee",
+    SolidityVariableComposed("block.blobbasefee"): "block.blobbasefee",
+    SolidityVariableComposed("block.gaslimit"): "block.gaslimit",
+}
 
 _HASH_AND_ENCODE = {
     SolidityFunction("keccak256()"),
@@ -175,6 +184,13 @@ def _process_node_data_flow(
                 ctx.mark_msg_sender_alias(ir.lvalue)
             elif id(ir.rvalue) in ctx.msg_sender_aliases:
                 ctx.mark_msg_sender_alias(ir.lvalue)
+
+        # ── gas-related composed variable sources ──
+        # Mark the composed variable itself so downstream
+        # propagation (assignments, binary ops, etc.) sees it.
+        for r in ir.read:
+            if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
+                ctx.mark(r)
 
         # ── taint sources ──
         if isinstance(ir, SolidityCall):
@@ -369,6 +385,10 @@ def _callee_introduces_taint(func: Function) -> set[int]:
             if isinstance(ir, NewContract):
                 if ir.call_salt is not None:
                     result.add(-1)
+            # Gas-related composed variables
+            for r in ir.read:
+                if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
+                    result.add(-1)
     return result
 
 
@@ -466,6 +486,10 @@ def _collect_reasons(
 
     for n in func.nodes:
         for ir in n.irs:
+            # Gas-related composed variables
+            for r in ir.read:
+                if isinstance(r, SolidityVariableComposed) and r in _GAS_COMPOSED_SOURCES:
+                    reasons.add(_GAS_COMPOSED_SOURCES[r])
             if isinstance(ir, SolidityCall):
                 if ir.function == _GASLEFT:
                     reasons.add("gasleft()")
@@ -659,8 +683,8 @@ def _get_storage_slot(
 class TaintedStorage(AbstractDetector):
     ARGUMENT = "tainted-storage"
     HELP = (
-        "State variables tainted by gasleft, CREATE2, "
-        "or sender balance"
+        "State variables tainted by gasleft, gas-related globals, "
+        "CREATE2, or sender balance"
     )
     IMPACT = DetectorClassification.MEDIUM
     CONFIDENCE = DetectorClassification.MEDIUM
@@ -673,10 +697,11 @@ class TaintedStorage(AbstractDetector):
     )
     WIKI_DESCRIPTION = (
         "Detects state variables whose stored value depends on "
-        "`gasleft()`, the address returned by CREATE2, or "
-        "`msg.sender.balance`. These values are non-deterministic "
-        "or manipulable and storing them can lead to unexpected "
-        "contract behavior."
+        "`gasleft()`, `tx.gasprice`, `block.basefee`, "
+        "`block.blobbasefee`, `block.gaslimit`, the address "
+        "returned by CREATE2, or `msg.sender.balance`. These "
+        "values are non-deterministic or manipulable and storing "
+        "them can lead to unexpected contract behavior."
     )
     WIKI_EXPLOIT_SCENARIO = """
 ```solidity
@@ -690,10 +715,12 @@ contract Example {
 `gasSnapshot` depends on remaining gas, which varies per call and
 can be manipulated by callers to influence contract state."""
     WIKI_RECOMMENDATION = (
-        "Avoid storing values derived from `gasleft()`, CREATE2 "
-        "deployment addresses, or `msg.sender.balance` in contract "
-        "storage. If needed, document the non-determinism clearly "
-        "and add validation logic."
+        "Avoid storing values derived from `gasleft()`, "
+        "`tx.gasprice`, `block.basefee`, `block.blobbasefee`, "
+        "`block.gaslimit`, CREATE2 deployment addresses, or "
+        "`msg.sender.balance` in contract storage. If needed, "
+        "document the non-determinism clearly and add validation "
+        "logic."
     )
 
     def _detect(self) -> list:

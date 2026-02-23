@@ -288,7 +288,6 @@ def test_edge_no_false_positives():
     for clean_var in [
         "blockNum",
         "timestamp",
-        "txGasPrice",
         "msgValue",
         "otherBalance",
     ]:
@@ -313,6 +312,39 @@ def test_edge_multi_assign():
     results = _run_detector("EdgeCases.sol")
     tainted = _tainted_vars(results)
     assert "multiAssign" in tainted
+
+
+def test_edge_tx_gasprice():
+    results = _run_detector("EdgeCases.sol")
+    tainted = _tainted_vars(results)
+    assert "txGasPrice" in tainted
+
+
+def test_edge_block_basefee():
+    results = _run_detector("EdgeCases.sol")
+    tainted = _tainted_vars(results)
+    assert "baseFee" in tainted
+
+
+def test_edge_block_blobbasefee():
+    results = _run_detector("EdgeCases.sol")
+    tainted = _tainted_vars(results)
+    assert "blobBaseFee" in tainted
+
+
+def test_edge_block_gaslimit():
+    results = _run_detector("EdgeCases.sol")
+    tainted = _tainted_vars(results)
+    assert "gasLimit" in tainted
+
+
+def test_edge_gas_sources_reasons():
+    results = _run_detector("EdgeCases.sol")
+    fields = _tainted_storage_fields(results)
+    assert fields["EdgeCases.txGasPrice"]["taint_source"] == "tx.gasprice"
+    assert fields["EdgeCases.baseFee"]["taint_source"] == "block.basefee"
+    assert fields["EdgeCases.blobBaseFee"]["taint_source"] == "block.blobbasefee"
+    assert fields["EdgeCases.gasLimit"]["taint_source"] == "block.gaslimit"
 
 
 # ── PackedStorage (slot packing + offset) ───────────────────────
